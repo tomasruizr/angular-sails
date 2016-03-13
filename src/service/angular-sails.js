@@ -45,307 +45,326 @@
       return headersObj;
     };
   }
+  angular.module('ngSails')
+    .provider('$sails', function () {
+      var provider = this;
 
-  angular.module('ngSails').provider('$sails', function () {
-    var provider = this;
+      this.httpVerbs = ['get', 'post', 'put', 'delete'];
 
-    this.httpVerbs = ['get', 'post', 'put', 'delete'];
+      this.eventNames = ['on', 'off'];
 
-    this.eventNames = ['on', 'off'];
+      this.url = undefined;
 
-    this.url = undefined;
+      this.urlPrefix = '';
 
-    this.urlPrefix = '';
-
-    this.config = {
-      transports: ['polling', 'websocket'],
-      useCORSRouteToGetCookie: true
-    };
-
-    // Socket CSRF Handling
-    /**
-     * The CSRF Token Itself
-     *
-     * @type {String}
-     */
-    provider._csrf = null;
-    /**
-     * Whether to use or not the CSRF Token validation
-     *
-     * @type {Boolean}
-     */
-    provider.useCSRFToken = false;
-
-    // like https://docs.angularjs.org/api/ng/service/$http#interceptors
-    // but with sails.io arguments
-    var interceptorFactories = this.interceptors = [
-      /*function($injectables) {
-          return {
-              request: function(config) {},
-              response: function(response) {},
-              requestError: function(rejection) {},
-              responseError: function(rejection) {}
-          };
-      }*/
-    ];
-
-    /*@ngInject*/
-    this.$get = function ($q, $injector, $rootScope, $log, $timeout) {
-      var socket = (io.sails && io.sails.connect || io.connect)(provider.url, provider.config);
-      // Private promise that resolves when the csrf has been got
-      var csrfPromise = $q.defer();
-
-      socket.connect = function (opts) {
-        if (!socket.isConnected()) {
-          var _opts = opts || {};
-          _opts = angular.extend({}, provider.config, opts);
-
-          // These are the options sails.io.js actually sets when making the connection.
-          socket.useCORSRouteToGetCookie = _opts.useCORSRouteToGetCookie;
-          socket.url = _opts.url || provider.url;
-          socket.multiplex = _opts.multiplex;
-
-          socket._connect();
-        }
-        return socket;
+      this.config = {
+        transports: ['polling', 'websocket'],
+        useCORSRouteToGetCookie: true
       };
 
-      // TODO: separate out interceptors into its own file (and provider?).
-      // build interceptor chain
-      var reversedInterceptors = [];
-      angular.forEach(interceptorFactories, function (interceptorFactory) {
-        reversedInterceptors.unshift(
-          angular.isString(interceptorFactory) ?
-          $injector.get(interceptorFactory) : $injector.invoke(interceptorFactory)
-        );
-      });
+      // Socket CSRF Handling
+      /**
+       * The CSRF Token Itself
+       *
+       * @type {String}
+       */
+      provider._csrf = null;
+      /**
+       * Whether to use or not the CSRF Token validation
+       *
+       * @type {Boolean}
+       */
+      provider.useCSRFToken = false;
 
-      // Send the request using the socket
-      function serverRequest(config) {
-        var reqPromise = $q.defer();
-        var opts = {
-          url: config.url,
-          method: config.method,
-          params: config.data || {},
-          headers: config.headers || {}
+      // Private promise that resolves when the csrf has been got
+      var csrfPromise;
+
+      
+      // like https://docs.angularjs.org/api/ng/service/$http#interceptors
+      // but with sails.io arguments
+      var interceptorFactories = provider.interceptors = [
+        /*function($injectables) {
+            return {
+                request: function(config) {},
+                response: function(response) {},
+                requestError: function(rejection) {},
+                responseError: function(rejection) {}
+            };
+        }*/
+      ];
+
+      /*@ngInject*/
+      this.$get = function ($q, $injector, $rootScope, $log, $timeout) {
+        // var socket = (io.sails && io.sails.autoConnect ? io.socket) : (io.sails && io.sails.connect || io.connect)(provider.url, provider.config);
+        var socket = (io.sails && io.sails.connect || io.connect)(provider.url, provider.config);
+        csrfPromise = $q.defer();
+        socket.connect = function (opts) {
+          if (!socket.isConnected()) {
+            var _opts = opts || {};
+            _opts = angular.extend({}, provider.config, opts);
+
+            // These are the options sails.io.js actually sets when making the connection.
+            socket.useCORSRouteToGetCookie = _opts.useCORSRouteToGetCookie;
+            socket.url = _opts.url || provider.url;
+            socket.multiplex = _opts.multiplex;
+
+            socket._connect();
+          }
+          return socket;
         };
-        $log.info('$sails ' + config.method + ' ' + config.url, config.headers || '',config.data || '');
 
-        function timeoutRequest() {
-          serverResponse(null);
+        if (provider.useCSRFToken){
+          interceptorFactories.push(function ($q) {
+            return {
+              request: function (config) {
+                //wait for the csrf token to exist in order to continue
+                if (config.method.toLowerCase() !== 'get' && provider.useCSRFToken) {
+                  var def = $q.defer();
+                  // (function(resolve, reject) {
+                  $q.when(csrfPromise.promise)
+                    .then(function (csrfToken) {
+                      if (provider.csrfTokenAsHeader) {
+                        config.headers = config.headers || {};
+                        config.headers['X-CSRF-Token'] = csrfToken;
+                        def.resolve(config);
+                      } else {
+                        config.data = config.data || {};
+                        config.data._csrf = csrfToken;
+                      }
+                    });
+                  return def.promise;
+                  // In case of a get request or not use csrf tokens
+                } else {
+                  return config;
+                }
+              }
+            };
+          });
         }
 
-        function serverResponse(result, jwr) {
+        // TODO: separate out interceptors into its own file (and provider?).
+        // build interceptor chain
+        var reversedInterceptors = [];
+        angular.forEach(interceptorFactories, function (interceptorFactory) {
+          reversedInterceptors.unshift(
+            angular.isString(interceptorFactory) ?
+            $injector.get(interceptorFactory) : $injector.invoke(interceptorFactory)
+          );
+        });
 
-          if (!jwr) {
-            jwr = {
-              body: result,
-              headers: result.headers || {},
-              statusCode: result.statusCode || result.status || 0,
-              error: (function () {
-                if (this.statusCode < 200 || this.statusCode >= 400) {
-                  return this.body || this.statusCode;
-                }
-              })()
+        // Send the request using the socket
+        function serverRequest(config) {
+          var reqPromise = $q.defer();
+          var opts = {
+            url: config.url,
+            method: config.method,
+            params: config.data || {},
+            headers: config.headers || {}
+          };
+          $log.info('$sails ' + config.method + ' ' + config.url, config.headers || '', config.data || '');
+
+          function timeoutRequest() {
+            serverResponse(null);
+          }
+
+          function serverResponse(result, jwr) {
+
+            if (!jwr) {
+              jwr = {
+                body: result,
+                headers: result.headers || {},
+                statusCode: result.statusCode || result.status || 0,
+                error: (function () {
+                  if (this.statusCode < 200 || this.statusCode >= 400) {
+                    return this.body || this.statusCode;
+                  }
+                })()
+              };
+            }
+
+            jwr.data = jwr.body; // $http compat
+            jwr.status = jwr.statusCode; // $http compat
+            jwr.socket = socket;
+            jwr.url = config.url;
+            jwr.method = config.method;
+            jwr.config = config.config;
+            if (jwr.error) {
+              $log.warn('$sails response ' + jwr.statusCode + ' ' + config.url, jwr);
+              reqPromise.reject(jwr);
+            } else {
+              $log.info('$sails response ' + config.url, jwr);
+              reqPromise.resolve(jwr);
+            }
+          }
+
+          if (config.timeout > 0) {
+            $timeout(timeoutRequest, config.timeout);
+          } else if (isPromiseLike(config.timeout)) {
+            config.timeout.then(timeoutRequest);
+          }
+
+          // socket['legacy_' + config.method.toLowerCase()](config.url, config.data, serverResponse);
+          socket.request(opts, serverResponse);
+
+          return reqPromise.promise;
+        }
+
+        function promisify(methodName) {
+          // socket['legacy_' + methodName] = socket[methodName];
+
+          socket[methodName] = function (url, data, config) {
+
+            var chain = [serverRequest, undefined];
+
+            //TODO: more compatible with $http methods and config
+            var opts = {
+              url: provider.urlPrefix + url,
+              data: data,
+              socket: socket,
+              config: config || {},
+              method: methodName.toUpperCase()
+            };
+            var promise = $q.when(opts);
+
+            // apply interceptors
+            angular.forEach(reversedInterceptors, function (interceptor) {
+              if (interceptor.request || interceptor.requestError) {
+                chain.unshift(interceptor.request, interceptor.requestError);
+              }
+              if (interceptor.response || interceptor.responseError) {
+                chain.push(interceptor.response, interceptor.responseError);
+              }
+            });
+            while (chain.length) {
+              var thenFn = chain.shift();
+              var rejectFn = chain.shift();
+
+              promise = promise.then(thenFn, rejectFn);
+            }
+
+            // be $http compatible
+            promise.success = function (fn) {
+              promise.then(function (jwr) {
+                fn(jwr.body, jwr.statusCode, headersGetter(jwr.headers), jwr);
+              });
+              return promise;
+            };
+            promise.error = function (fn) {
+              promise.then(null, function (jwr) {
+                fn(jwr.body, jwr.statusCode, headersGetter(jwr.headers), jwr);
+              });
+              return promise;
+            };
+
+            return promise;
+          };
+        }
+
+        function wrapEvent(eventName) {
+          if (socket[eventName] || socket._raw && socket._raw[eventName]) {
+            socket['legacy_' + eventName] = socket[eventName] || socket._raw[eventName];
+            socket[eventName] = function (event, cb) {
+              var wrapEventFn = null;
+              if (eventName == 'off') {
+                return socket['legacy_' + eventName](event, cb);
+              } else if (cb !== null && angular.isFunction(cb)) {
+                socket['legacy_' + eventName](event, wrapEventFn = function (result) {
+                  $rootScope.$evalAsync(cb.bind(socket, result));
+                });
+              }
+              return wrapEventFn;
             };
           }
-
-          jwr.data = jwr.body; // $http compat
-          jwr.status = jwr.statusCode; // $http compat
-          jwr.socket = socket;
-          jwr.url = config.url;
-          jwr.method = config.method;
-          jwr.config = config.config;
-          if (jwr.error) {
-            $log.warn('$sails response ' + jwr.statusCode + ' ' + config.url, jwr);
-            reqPromise.reject(jwr);
-          } else {
-            $log.info('$sails response ' + config.url, jwr);
-            reqPromise.resolve(jwr);
-          }
         }
 
-        if (config.timeout > 0) {
-          $timeout(timeoutRequest, config.timeout);
-        } else if (isPromiseLike(config.timeout)) {
-          config.timeout.then(timeoutRequest);
-        }
-
-        // socket['legacy_' + config.method.toLowerCase()](config.url, config.data, serverResponse);
-
-        if (verb !== 'get' && provider.useCSRFToken) {
-          $q.when(csrfPromise.promise)
-            .then(function () {
-              socket.request(opts, serverResponse);
-            });
-          // In case of a get request or not use csrf tokens
-        } else {
-          socket.request(opts, serverResponse);
-        }
-
-        return reqPromise.promise;
-      }
-
-      function promisify(methodName) {
-        // socket['legacy_' + methodName] = socket[methodName];
-
-        socket[methodName] = function (url, data, config) {
-
-          var chain = [serverRequest, undefined];
-
-          //TODO: more compatible with $http methods and config
-
-          var promise = $q.when({
-            url: provider.urlPrefix + url,
-            data: data,
-            socket: socket,
-            config: config || {},
-            method: methodName.toUpperCase()
-          });
-
-          // apply interceptors
-          angular.forEach(reversedInterceptors, function (interceptor) {
-            if (interceptor.request || interceptor.requestError) {
-              chain.unshift(interceptor.request, interceptor.requestError);
-            }
-            if (interceptor.response || interceptor.responseError) {
-              chain.push(interceptor.response, interceptor.responseError);
-            }
-          });
-
-          while (chain.length) {
-            var thenFn = chain.shift();
-            var rejectFn = chain.shift();
-
-            promise = promise.then(thenFn, rejectFn);
-          }
-
-          // be $http compatible
-          promise.success = function (fn) {
-            promise.then(function (jwr) {
-              fn(jwr.body, jwr.statusCode, headersGetter(jwr.headers), jwr);
-            });
-            return promise;
-          };
-          promise.error = function (fn) {
-            promise.then(null, function (jwr) {
-              fn(jwr.body, jwr.statusCode, headersGetter(jwr.headers), jwr);
-            });
-            return promise;
-          };
-
-          return promise;
-        };
-      }
-
-      function wrapEvent(eventName) {
-        if (socket[eventName] || socket._raw && socket._raw[eventName]) {
-          socket['legacy_' + eventName] = socket[eventName] || socket._raw[eventName];
-          socket[eventName] = function (event, cb) {
-            var wrapEventFn = null;
-            if (eventName == 'off') {
-              return socket['legacy_' + eventName](event, cb);
-            } else if (cb !== null && angular.isFunction(cb)) {
-              socket['legacy_' + eventName](event, wrapEventFn = function (result) {
+        // sails.io.js doesn't have `once`, need to access it through `._raw`
+        socket.once = function (event, cb) {
+          if (cb !== null && angular.isFunction(cb)) {
+            if (socket._raw) {
+              socket._raw.once(event, function (result) {
                 $rootScope.$evalAsync(cb.bind(socket, result));
               });
             }
-            return wrapEventFn;
-          };
-        }
-      }
-
-      // sails.io.js doesn't have `once`, need to access it through `._raw`
-      socket.once = function (event, cb) {
-        if (cb !== null && angular.isFunction(cb)) {
-          if (socket._raw) {
-            socket._raw.once(event, function (result) {
-              $rootScope.$evalAsync(cb.bind(socket, result));
-            });
           }
+        };
+
+        angular.forEach(provider.httpVerbs, promisify);
+        angular.forEach(provider.eventNames, wrapEvent);
+
+
+        /**
+         * Update a model on sails pushes
+         * @param {String} name       Sails model name
+         * @param {Array} models      Array with model objects
+         */
+        socket.$modelUpdater = function (name, models) {
+
+          var update = function (message) {
+
+            $rootScope.$evalAsync(function () {
+              var i;
+
+              switch (message.verb) {
+
+              case "created":
+                // create new model item
+                models.push(message.data);
+                break;
+
+              case "updated":
+                var obj;
+                for (i = 0; i < models.length; i++) {
+                  if (models[i].id === message.id) {
+                    obj = models[i];
+                    break;
+                  }
+                }
+
+                // cant update if the angular-model does not have the item and the
+                // sails message does not give us the previous record
+                if (!obj && !message.previous) return;
+
+                if (!obj) {
+                  // sails has given us the previous record, create it in our model
+                  obj = message.previous;
+                  models.push(obj);
+                }
+
+                // update the model item
+                angular.extend(obj, message.data);
+                break;
+
+              case "destroyed":
+                for (i = 0; i < models.length; i++) {
+                  if (models[i].id === message.id) {
+                    models.splice(i, 1);
+                    break;
+                  }
+                }
+                break;
+              }
+            });
+          };
+
+          socket.legacy_on(name, update);
+
+          return function () {
+            socket.legacy_off(name, update);
+          };
+        };
+        //*******************************************
+        // Get the CSRF Token when connected
+        //*******************************************
+        if (provider.useCSRFToken) {
+          socket.get('/csrfToken')
+            .then(function (response) {
+              provider._csrf = response.data._csrf || false;
+              $log.debug(response.data._csrf);
+              csrfPromise.resolve(response.data._csrf);
+            });
         }
+
+        return socket;
       };
-
-      angular.forEach(provider.httpVerbs, promisify);
-      angular.forEach(provider.eventNames, wrapEvent);
-
-
-      /**
-       * Update a model on sails pushes
-       * @param {String} name       Sails model name
-       * @param {Array} models      Array with model objects
-       */
-      socket.$modelUpdater = function (name, models) {
-
-        var update = function (message) {
-
-          $rootScope.$evalAsync(function () {
-            var i;
-
-            switch (message.verb) {
-
-            case "created":
-              // create new model item
-              models.push(message.data);
-              break;
-
-            case "updated":
-              var obj;
-              for (i = 0; i < models.length; i++) {
-                if (models[i].id === message.id) {
-                  obj = models[i];
-                  break;
-                }
-              }
-
-              // cant update if the angular-model does not have the item and the
-              // sails message does not give us the previous record
-              if (!obj && !message.previous) return;
-
-              if (!obj) {
-                // sails has given us the previous record, create it in our model
-                obj = message.previous;
-                models.push(obj);
-              }
-
-              // update the model item
-              angular.extend(obj, message.data);
-              break;
-
-            case "destroyed":
-              for (i = 0; i < models.length; i++) {
-                if (models[i].id === message.id) {
-                  models.splice(i, 1);
-                  break;
-                }
-              }
-              break;
-            }
-          });
-        };
-
-        socket.legacy_on(name, update);
-
-        return function () {
-          socket.legacy_off(name, update);
-        };
-      };
-      //*******************************************
-      // Get the CSRF Token when connected
-      //*******************************************
-      if (provider.useCSRFToken) {
-        socket.get('/csrfToken')
-          .then(function (response) {
-            provider._csrf = response.data._csrf || false;
-            $log.debug(response.data._csrf);
-            // if (provider.csrfTokenAsHeader) {
-            //   socket.headers['X-CSRF-Token'] = response.data._csrf;
-            // }
-            csrfPromise.resolve(response.data._csrf);
-          });
-      }
-
-      return socket;
-    };
-  });
+    });
 }(angular, io));

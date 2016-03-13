@@ -59,7 +59,7 @@ describe('Agnular Sails service', function() {
 
             mockIoSocket.on('get', function(ctx, cb){
                 getSpy();
-                cb(response[ctx.url]);
+                cb('response[ctx.url]');
             });
             mockIoSocket.on('post', function(ctx, cb){
                 postSpy();
@@ -408,5 +408,4 @@ describe('Agnular Sails service', function() {
         });
 
     });
-
 });
