@@ -62,19 +62,19 @@
         useCORSRouteToGetCookie: true
       };
 
-      // Socket CSRF Handling
-      /**
-       * The CSRF Token Itself
-       *
-       * @type {String}
-       */
-      provider._csrf = null;
       /**
        * Whether to use or not the CSRF Token validation
        *
        * @type {Boolean}
        */
       provider.useCSRFToken = false;
+
+      /**
+       * Whether to include the token as a header. In case is false, will be added as a property in the body of the request as '_csrf'.
+       *
+       * @type {Boolean}
+       */
+      provider.csrfTokenAsHeader = true;
 
       // Private promise that resolves when the csrf has been got
       var csrfPromise;
@@ -358,7 +358,7 @@
         if (provider.useCSRFToken) {
           socket.get('/csrfToken')
             .then(function (response) {
-              provider._csrf = response.data._csrf || false;
+              // provider._csrf = response.data._csrf || false;
               $log.debug(response.data._csrf);
               csrfPromise.resolve(response.data._csrf);
             });

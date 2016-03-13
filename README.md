@@ -1,5 +1,13 @@
 [![Build Status](https://travis-ci.org/janpantel/angular-sails.svg?branch=master)](https://travis-ci.org/janpantel/angular-sails)
 
+Modified by [Tomás Ruiz](mailto:tomasruizr@gmail.com) to handle CSRF Tokens.
+Added two properties to the $sailsProvider
+
+
+* **useCSRFToken** _default_: **false**. Whether to use or not the CSRF Token validation       
+* **csrfTokenAsHeader** _default_: **true**. Whether to include the token as a header. In case is false, will be added as a property in the body of the request as '_csrf'.
+
+
 Angular Sails
 =============
 
