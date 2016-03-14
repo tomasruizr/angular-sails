@@ -5,6 +5,7 @@ var pkgFiles = {
     'bower_components/angular/angular.js'
   ],
   karma: [
+    'bower_components/jquery/dist/jquery.min.js',
     'bower_components/angular/angular.js',
     'bower_components/angular-mocks/angular-mocks.js',
     'mock/socket-io.js',
