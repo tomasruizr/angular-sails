@@ -95,7 +95,7 @@
 
       /*@ngInject*/
       this.$get = function ($q, $injector, $rootScope, $log, $timeout) {
-        // var socket = (io.sails && io.sails.autoConnect ? io.socket) : (io.sails && io.sails.connect || io.connect)(provider.url, provider.config);
+        // var socket = (io.sails && io.sails.autoConnect) ? io.socket : (io.sails && io.sails.connect || io.connect)(provider.url, provider.config);
         var socket = (io.sails && io.sails.connect || io.connect)(provider.url, provider.config);
         csrfPromise = $q.defer();
         socket.connect = function (opts) {
