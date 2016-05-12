@@ -26,6 +26,10 @@
     return angular.isString(value) ? value.trim() : value;
   }
 
+  function lowercase(value) {
+    return angular.isString(value) ? value.toLowerCase() : value;
+  }
+
   function isPromiseLike(obj) {
     return obj && angular.isFunction(obj.then);
   }
